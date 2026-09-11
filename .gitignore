@@ -1,0 +1,32 @@
+.DS_Store
+__pycache__/
+*.py[cod]
+.venv/
+.models/
+.cache/
+
+# Authentication and local configuration
+*cookies*.txt
+.env
+.env.*
+config.local.json
+
+# Downloaded media, model weights, and generated transcripts
+*.m4a
+*.mp3
+*.wav
+*.aac
+*.flac
+*.mp4
+*.mkv
+*.webm
+*.onnx
+*.bin
+*.safetensors
+*.part
+*.ytdl
+.*_transcribe_chunk_*.json
+*_完整转写.md
+*_纯文字稿.md
+*_纯文字稿_移动端.html
+*_????-??-??/

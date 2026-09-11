@@ -1,0 +1,4 @@
+yt-dlp>=2026.7.4
+faster-whisper>=1.2.1,<2
+sherpa-onnx>=1.13.4,<2
+imageio-ffmpeg>=0.6,<1

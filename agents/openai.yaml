@@ -1,0 +1,4 @@
+interface:
+  display_name: "B站视频纯文字转写"
+  short_description: "下载B站音频并本地识别，在单层目录输出文字稿与移动端HTML"
+  default_prompt: "使用 $transcribe-bilibili-video 下载这个B站视频的音频并进行本地语音识别，忽略平台字幕，输出带时间戳的纯文字稿，不添加总结或评价。"
