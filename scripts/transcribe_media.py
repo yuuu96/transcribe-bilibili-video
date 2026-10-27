@@ -354,14 +354,15 @@ def smart_join(parts: list[str]) -> str:
     return output
 
 
-def text_needs_punctuation(text: str) -> bool:
-    visible_chars = sum(not char.isspace() for char in text)
-    punctuation_count = sum(char in PUNCTUATION for char in text)
-    return visible_chars >= 40 and punctuation_count * 80 < visible_chars
-
-
 def normalize_reading_punctuation(text: str) -> str:
     return text.translate(str.maketrans(",!?;", "，！？；"))
+
+
+def strip_punctuation_for_restoration(text: str) -> str:
+    value = normalize_reading_punctuation(text)
+    value = re.sub(r"[，。！？；：、,!?;:]+", "", value)
+    value = re.sub(r"(?<!\d)\.(?!\d)", "", value)
+    return re.sub(r"\s+", " ", value).strip()
 
 
 def light_clean_verbatim(text: str, infer_punctuation: bool = True) -> str:
@@ -559,24 +560,14 @@ def build_reading_paragraphs(
         if infer_punctuation
         else smart_join([entry.text for entry in entries])
     )
-    if punctuate and text_needs_punctuation(joined):
-        joined = punctuate(joined)
+    if punctuate:
+        restoration_input = strip_punctuation_for_restoration(joined)
+        joined = punctuate(restoration_input) or joined
     cleaned = light_clean_verbatim(joined, infer_punctuation=infer_punctuation)
     if not cleaned:
         cleaned = normalize_reading_punctuation(joined)
     paragraphs = split_semantic_paragraphs(cleaned, max_chars)
     return _timestamp_paragraphs(entries, paragraphs)
-
-
-def needs_punctuation_restoration(entries: list[TranscriptEntry]) -> bool:
-    buffer = ""
-    for entry in entries:
-        buffer = smart_join([buffer, entry.text])
-        if len(buffer) >= 200:
-            if text_needs_punctuation(buffer):
-                return True
-            buffer = ""
-    return text_needs_punctuation(buffer)
 
 
 def resolve_punctuation_model(args: argparse.Namespace) -> Path | None:
@@ -615,7 +606,7 @@ def load_punctuation_restorer(
     model_path = resolve_punctuation_model(args)
     if model_path is None:
         print(
-            "warning=source has almost no punctuation and no punctuation model is available",
+            "warning=punctuation model is unavailable; using ASR-boundary punctuation",
             flush=True,
         )
         return None
@@ -1033,11 +1024,8 @@ def run_transcription(args: argparse.Namespace) -> OutputPaths:
     reading_path = args.project_dir / f"{base}_纯文字稿.md"
     html_path = args.project_dir / f"{base}_纯文字稿_移动端.html"
 
-    punctuation_restored = needs_punctuation_restoration(entries)
-    punctuate = None
-    if punctuation_restored:
-        punctuate = load_punctuation_restorer(args)
-        punctuation_restored = punctuate is not None
+    punctuate = load_punctuation_restorer(args)
+    punctuation_restored = punctuate is not None
 
     sections = make_sections(
         entries,

@@ -19,7 +19,7 @@ class TranscriptFormattingTests(unittest.TestCase):
 
     def test_sparse_punctuation_is_restored_per_paragraph(self) -> None:
         entries = [
-            transcribe_media.TranscriptEntry(0, 45, "这是一段没有标点的中文内容" * 8),
+            transcribe_media.TranscriptEntry(0, 45, "这是一段，已有逗号的中文内容" * 8),
             transcribe_media.TranscriptEntry(45, 60, "下一句话"),
         ]
         seen: list[str] = []
@@ -36,7 +36,8 @@ class TranscriptFormattingTests(unittest.TestCase):
             max_chars=360,
             punctuate=punctuate,
         )
-        self.assertEqual(len(seen), 1)
+        self.assertEqual(len(seen), 2)
+        self.assertTrue(all("，" not in text for text in seen))
         self.assertIn("，结束！", sections[0][2][0][1])
 
     def test_light_clean_verbatim_is_conservative(self) -> None:
