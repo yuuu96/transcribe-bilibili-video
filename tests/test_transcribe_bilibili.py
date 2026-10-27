@@ -196,6 +196,9 @@ class BilibiliCliTests(unittest.TestCase):
             transcribe_args = transcribe.call_args.args[0]
             self.assertIsNone(transcribe_args.input_subtitle)
             self.assertEqual(transcribe_args.input_audio.suffix, ".m4a")
+            self.assertEqual(transcribe_args.paragraph_seconds, 35)
+            self.assertEqual(transcribe_args.max_paragraph_chars, 260)
+            self.assertEqual(transcribe_args.paragraph_pause_seconds, 1.6)
 
 
 if __name__ == "__main__":

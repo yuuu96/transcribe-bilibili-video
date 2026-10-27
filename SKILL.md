@@ -1,6 +1,6 @@
 ---
 name: transcribe-bilibili-video
-description: Download and transcribe Bilibili public or member-only videos into timestamped Chinese text and mobile-friendly HTML in a single-level project folder. Use when the user provides a Bilibili URL or BV ID and asks to 转文字、转写、形成文字稿、整理原话、生成移动端 HTML, including videos that require a Netscape cookies.txt login file. Always download audio and use local ASR by default; ignore platform subtitles unless the user explicitly reverses this preference. Preserve the speaker's wording and sequence; do not add summaries, evaluations, viewpoint extraction, or commentary unless explicitly requested.
+description: Download and transcribe Bilibili public or member-only videos into a timestamped raw transcript plus a Light Clean Verbatim reading edition and mobile-friendly HTML. Use when the user provides a Bilibili URL or BV ID and asks to 转文字、转写、形成文字稿、整理原话、生成移动端 HTML, including videos that require a Netscape cookies.txt login file. Always download audio and use local ASR by default; ignore platform subtitles unless the user explicitly reverses this preference. Preserve all substantive content and sequence; do not add summaries, evaluations, viewpoint extraction, or commentary unless explicitly requested.
 ---
 
 # Transcribe Bilibili Video
@@ -13,18 +13,20 @@ Create a faithful transcript from Bilibili audio with resumable local speech rec
 - Save under the requested output root, or the current working directory when none is specified.
 - Name the project and outputs `<标题>_<YYYY-MM-DD>`.
 - Keep each project strictly single-level and retain the compressed source audio in its root.
-- Generate `README.md`, complete timestamp Markdown, readable Markdown, and mobile HTML.
+- Generate `README.md`, an unchanged timestamped ASR transcript, a Light Clean Verbatim reading edition, and mobile HTML.
 - Always download audio and run local ASR. Do not inspect, download, or use official or automatic subtitles unless the user explicitly requests subtitle input in the current conversation.
 - Store resumable chunk checkpoints as hidden project-root files during an incomplete run. Remove them only after every final output succeeds.
 - Create temporary WAV chunks only in the system temporary directory and remove them after their checkpoints are saved.
 
 ## Content Rules
 
-- Preserve the original sequence, wording, examples, questions, repetitions, and spoken uncertainty.
-- Add only neutral metadata, timestamps, paragraph boundaries, and punctuation.
-- Restore Chinese punctuation in readable Markdown and HTML without paraphrasing the source.
-- Correct only obvious homophones and proper nouns supported by context or an audio check.
-- Mark genuinely unclear names as `[听不清]` or retain their phonetic form instead of guessing.
+- Treat the complete timestamp Markdown as the immutable raw ASR transcript. Never apply readability cleanup to it.
+- Make the readable Markdown and mobile HTML the default reading outputs. Apply the Light Clean Verbatim rules in [references/light-clean-verbatim.md](references/light-clean-verbatim.md).
+- Preserve every substantive claim, judgment, analytical step, example, question, interaction, emotion, uncertainty, contradiction, and unfinished thought in its original order.
+- Remove only meaningless hesitation sounds, stutters, false starts, and mechanical repetition. Preserve repetition that provides emphasis, interaction, rhythm, or emotion.
+- Correct obvious ASR homophones, spelling, broken starts, and proper nouns only when context or the source audio supports the correction. Mark unresolved wording as `[存疑：听音]`; never guess substantive content.
+- Restore punctuation and create short, semantic paragraphs. Keep each paragraph timestamp aligned with its first retained utterance.
+- Preserve the speaker's voice and spoken style. Do not rewrite the transcript as a formal article.
 - Do not add summaries, core viewpoints, evaluations, interpretations, fact-checks, warnings, or conclusions unless the user separately requests them.
 
 ## Run
@@ -61,7 +63,10 @@ After generation, verify:
 - no chunk interval is missing or duplicated;
 - the final timestamp is close to the last audible speech;
 - repeated names and technical terms are consistent;
-- readable outputs contain normal Chinese punctuation;
+- the raw transcript still contains the original ASR wording;
+- readable outputs contain normal Chinese punctuation, natural paragraphing, and no obvious meaningless stutters or mechanical repetition;
+- suspicious names, impossible phrases, and broken sentences were checked against the corresponding audio and either corrected or marked `[存疑：听音]`;
+- the readable Markdown and HTML contain the same cleaned wording and timestamps;
 - no assistant-authored summary or evaluation appears;
 - the project contains no subdirectories, cookies, subtitles, temporary WAV files, completed checkpoints, or failed download fragments.
 

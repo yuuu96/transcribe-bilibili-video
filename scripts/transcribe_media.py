@@ -32,6 +32,31 @@ class OutputPaths:
 
 PUNCTUATION = set("。！？；：，、,.!?;:")
 SKILL_ROOT = Path(__file__).resolve().parent.parent
+PRONOUN_STUTTER_CHARS = "这那我你他她它"
+MECHANICAL_STUTTER_CHARS = "就还也又都把被给跟从的了是有在而并但因所"
+REPEATED_OPENINGS = (
+    "我觉得",
+    "我认为",
+    "我想说",
+    "就是说",
+    "我们看",
+    "换句话说",
+)
+REPEATED_FILLER_PHRASES = ("这个", "那个", "然后", "就是", "所以说")
+DISCOURSE_STARTS = (
+    "但是",
+    "所以",
+    "然后",
+    "不过",
+    "因为",
+    "其实",
+    "另外",
+    "反正",
+    "总之",
+    "比如",
+    "假如",
+    "如果",
+)
 
 
 def format_time(seconds: float) -> str:
@@ -339,6 +364,210 @@ def normalize_reading_punctuation(text: str) -> str:
     return text.translate(str.maketrans(",!?;", "，！？；"))
 
 
+def light_clean_verbatim(text: str, infer_punctuation: bool = True) -> str:
+    """Conservatively clean ASR prose without changing its substance or order."""
+    value = normalize_reading_punctuation(text.replace("\ufffd", ""))
+    value = re.sub(r"\s+", " ", value).strip()
+    if infer_punctuation:
+        value = re.sub(
+            r"(?<=[\u4e00-\u9fff]) +(?=[\u4e00-\u9fff])",
+            "，",
+            value,
+        )
+
+    # Keep “嗯” because it can be an interactive acknowledgement. Remove only
+    # less ambiguous isolated hesitation sounds followed by a comma-like pause.
+    value = re.sub(
+        r"(^|[，。！？；：])\s*(?:呃|额|唔)[，、]\s*",
+        r"\1",
+        value,
+    )
+
+    # Collapse obvious restarts while leaving expressive repetition such as
+    # “真的真的” and interactive phrases such as “对吧” untouched.
+    for phrase in REPEATED_OPENINGS:
+        escaped = re.escape(phrase)
+        value = re.sub(rf"({escaped})(?:[，、 ]*\1)+", r"\1", value)
+    for phrase in REPEATED_FILLER_PHRASES:
+        escaped = re.escape(phrase)
+        value = re.sub(rf"({escaped})(?:[，、 ]*\1){{2,}}", r"\1\1", value)
+    value = re.sub(rf"([{PRONOUN_STUTTER_CHARS}])\1+", r"\1", value)
+    value = re.sub(rf"([{MECHANICAL_STUTTER_CHARS}])\1{{2,}}", r"\1\1", value)
+
+    value = re.sub(r"\s+([，。！？；：、])", r"\1", value)
+    value = re.sub(r"([，；：、])\1+", r"\1", value)
+    value = re.sub(r"([。！？])\1{2,}", r"\1\1", value)
+    value = re.sub(r"([。！？；：])，+", r"\1", value)
+    return value.strip()
+
+
+def _looks_like_question(text: str) -> bool:
+    normalized = normalize_reading_punctuation(text).rstrip("，。！？；：、 ")
+    return bool(
+        re.search(
+            r"(?:吗|为什么|怎么办|怎么回事|对不对|是吧|对吧|什么问题呢)$"
+            r"|(?:是不是|有没有|能不能|要不要|该不该).*[啊呀呢吧]?$",
+            normalized,
+        )
+    )
+
+
+def _shared_prefix_length(left: str, right: str) -> int:
+    count = 0
+    for left_char, right_char in zip(left, right):
+        if left_char != right_char:
+            break
+        count += 1
+    return count
+
+
+def join_reading_entries(entries: list[TranscriptEntry]) -> str:
+    """Join ASR segments with conservative punctuation inferred from boundaries."""
+    output = ""
+    clause_chars = 0
+    previous: TranscriptEntry | None = None
+    for entry in entries:
+        text = normalize_reading_punctuation(entry.text.strip())
+        if not text:
+            continue
+        if not output:
+            output = text
+            clause_chars = len(text)
+            previous = entry
+            continue
+
+        separator = ""
+        if output[-1] not in PUNCTUATION and previous is not None:
+            previous_text = normalize_reading_punctuation(previous.text.strip())
+            gap = max(0.0, entry.start - previous.end)
+            if _looks_like_question(previous_text):
+                separator = "？"
+            elif previous_text in ("但是呢", "所以说", "然后呢", "不过呢"):
+                separator = "，"
+            elif gap >= 2.0:
+                separator = "。"
+            elif text.startswith(DISCOURSE_STARTS):
+                separator = "。" if clause_chars >= 12 else "，"
+            elif (
+                gap >= 0.45
+                or clause_chars >= 12
+                or _shared_prefix_length(previous_text, text) >= 4
+                or text[:4] in previous_text
+            ):
+                separator = "，"
+
+        output = smart_join([output + separator, text])
+        if separator or any(char in PUNCTUATION for char in text):
+            clause_chars = len(re.split(r"[，。！？；：、]", text)[-1])
+        else:
+            clause_chars += len(text)
+        previous = entry
+    if previous is not None and output and output[-1] not in PUNCTUATION:
+        if _looks_like_question(previous.text):
+            output += "？"
+    return output
+
+
+def _split_overlong_unit(text: str, max_chars: int) -> list[str]:
+    parts: list[str] = []
+    remaining = text.strip()
+    while len(remaining) > max_chars:
+        window = remaining[: max_chars + 1]
+        candidates = [window.rfind(mark) for mark in "，、："]
+        split_at = max(candidates) + 1
+        if split_at < max(20, max_chars // 3):
+            split_at = max_chars
+        parts.append(remaining[:split_at].strip())
+        remaining = remaining[split_at:].strip()
+    if remaining:
+        parts.append(remaining)
+    return parts
+
+
+def split_semantic_paragraphs(text: str, max_chars: int) -> list[str]:
+    if not text:
+        return []
+    units = [
+        unit.strip()
+        for unit in re.split(r"(?<=[。！？；])", text)
+        if unit.strip()
+    ]
+    if not units:
+        units = [text.strip()]
+
+    paragraphs: list[str] = []
+    current = ""
+    for unit in units:
+        for fragment in _split_overlong_unit(unit, max_chars):
+            candidate = smart_join([current, fragment])
+            if current and len(candidate) > max_chars:
+                paragraphs.append(current)
+                current = fragment
+            else:
+                current = candidate
+    if current:
+        paragraphs.append(current)
+    return paragraphs
+
+
+def _timestamp_paragraphs(
+    entries: list[TranscriptEntry],
+    paragraphs: list[str],
+) -> list[tuple[float, str]]:
+    if not entries or not paragraphs:
+        return []
+    if len(paragraphs) == 1:
+        return [(entries[0].start, paragraphs[0])]
+
+    source_weights = [max(1, len(entry.text)) for entry in entries]
+    source_total = sum(source_weights)
+    paragraph_total = sum(max(1, len(text)) for text in paragraphs)
+    source_cumulative = []
+    running_source = 0
+    for weight in source_weights:
+        running_source += weight
+        source_cumulative.append(running_source)
+
+    output: list[tuple[float, str]] = []
+    consumed = 0
+    for index, paragraph in enumerate(paragraphs):
+        if index == 0:
+            entry_index = 0
+        else:
+            target = source_total * consumed / paragraph_total
+            entry_index = next(
+                (
+                    candidate
+                    for candidate, cumulative in enumerate(source_cumulative)
+                    if cumulative >= target
+                ),
+                len(entries) - 1,
+            )
+        output.append((entries[entry_index].start, paragraph))
+        consumed += max(1, len(paragraph))
+    return output
+
+
+def build_reading_paragraphs(
+    entries: list[TranscriptEntry],
+    max_chars: int,
+    punctuate: Callable[[str], str] | None,
+    infer_punctuation: bool,
+) -> list[tuple[float, str]]:
+    joined = (
+        join_reading_entries(entries)
+        if infer_punctuation
+        else smart_join([entry.text for entry in entries])
+    )
+    if punctuate and text_needs_punctuation(joined):
+        joined = punctuate(joined)
+    cleaned = light_clean_verbatim(joined, infer_punctuation=infer_punctuation)
+    if not cleaned:
+        cleaned = normalize_reading_punctuation(joined)
+    paragraphs = split_semantic_paragraphs(cleaned, max_chars)
+    return _timestamp_paragraphs(entries, paragraphs)
+
+
 def needs_punctuation_restoration(entries: list[TranscriptEntry]) -> bool:
     buffer = ""
     for entry in entries:
@@ -420,7 +649,15 @@ def make_sections(
     paragraph_seconds: int,
     max_chars: int,
     punctuate: Callable[[str], str] | None = None,
+    pause_seconds: float = 1.6,
+    infer_punctuation: bool = True,
 ) -> list[tuple[int, int, list[tuple[float, str]]]]:
+    if paragraph_seconds <= 0:
+        raise ValueError("paragraph_seconds must be positive")
+    if max_chars < 20:
+        raise ValueError("max_chars must be at least 20")
+    if pause_seconds < 0:
+        raise ValueError("pause_seconds cannot be negative")
     sections = []
     section_start = 0
     while section_start < duration:
@@ -431,28 +668,43 @@ def make_sections(
             if section_start <= entry.start < section_start + section_seconds
         ]
         paragraphs: list[tuple[float, str]] = []
-        buffer: list[str] = []
+        buffer: list[TranscriptEntry] = []
         buffer_start = 0.0
         buffer_end = 0.0
 
+        def flush_buffer() -> None:
+            nonlocal buffer
+            if not buffer:
+                return
+            paragraphs.extend(
+                build_reading_paragraphs(
+                    buffer,
+                    max_chars,
+                    punctuate,
+                    infer_punctuation,
+                )
+            )
+            buffer = []
+
         for entry in section_entries:
+            if buffer:
+                gap = entry.start - buffer[-1].end
+                if gap >= max(3.0, pause_seconds * 2) or (
+                    gap >= pause_seconds
+                    and (
+                        buffer_end - buffer_start >= 12
+                        or len(smart_join([item.text for item in buffer])) >= 80
+                    )
+                ):
+                    flush_buffer()
             if not buffer:
                 buffer_start = entry.start
-            buffer.append(entry.text)
+            buffer.append(entry)
             buffer_end = entry.end
-            joined = smart_join(buffer)
+            joined = smart_join([item.text for item in buffer])
             if buffer_end - buffer_start >= paragraph_seconds or len(joined) >= max_chars:
-                if punctuate and text_needs_punctuation(joined):
-                    joined = punctuate(joined)
-                joined = normalize_reading_punctuation(joined)
-                paragraphs.append((buffer_start, joined))
-                buffer = []
-        if buffer:
-            joined = smart_join(buffer)
-            if punctuate and text_needs_punctuation(joined):
-                joined = punctuate(joined)
-            joined = normalize_reading_punctuation(joined)
-            paragraphs.append((buffer_start, joined))
+                flush_buffer()
+        flush_buffer()
         if paragraphs:
             sections.append((section_start, section_end, paragraphs))
         section_start += section_seconds
@@ -558,7 +810,7 @@ def render_html(
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f4f6f7">
   <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#111416">
-  <title>{escaped_title} - 纯文字稿</title>
+  <title>{escaped_title} - 可读性整理稿</title>
   <style>
     :root {{
       color-scheme: light dark;
@@ -667,7 +919,7 @@ def render_html(
   <main id="top">
     <header>
       <h1>{escaped_title}</h1>
-      <p class="label">视频纯文字稿</p>
+      <p class="label">忠实原文的可读性整理稿</p>
       <ul>{info_items}</ul>
     </header>
     <details>
@@ -710,15 +962,15 @@ def write_project_index(
         "",
         "## 文件",
         "",
-        f"- 完整时间戳转写：`{raw_path.relative_to(args.project_dir)}`",
-        f"- 纯文字稿：`{reading_path.relative_to(args.project_dir)}`",
+        f"- 原始逐字稿（核对版）：`{raw_path.relative_to(args.project_dir)}`",
+        f"- 可读性整理稿（默认阅读）：`{reading_path.relative_to(args.project_dir)}`",
         f"- 手机阅读版：`{html_path.relative_to(args.project_dir)}`",
         "",
-        "转写只保留原视频内容顺序，不添加总结、评价或观点提炼。",
-        "自动识别可能存在同音字和专有名词错误。",
+        "可读性整理稿采用 Light Clean Verbatim：保留全部实质内容与原有顺序，只清理无意义卡顿、机械重复并优化标点分段。",
+        "原始逐字稿保留 ASR 原始文本和完整时间戳，用于回听核对。",
     ]
     if punctuation_restored:
-        lines.append("纯文字稿和手机阅读版已恢复中文标点；完整时间戳转写保留原始识别文本。")
+        lines.append("可读性整理稿和手机阅读版已恢复中文标点；原始逐字稿不做内容清理。")
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
@@ -747,8 +999,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--initial-prompt")
     parser.add_argument("--chunk-seconds", type=int, default=600)
     parser.add_argument("--section-seconds", type=int, default=300)
-    parser.add_argument("--paragraph-seconds", type=int, default=50)
-    parser.add_argument("--max-paragraph-chars", type=int, default=360)
+    parser.add_argument("--paragraph-seconds", type=int, default=35)
+    parser.add_argument("--max-paragraph-chars", type=int, default=260)
+    parser.add_argument("--paragraph-pause-seconds", type=float, default=1.6)
     parser.add_argument("--punctuation-model", type=Path)
     parser.add_argument("--punctuation-threads", type=int, default=2)
     parser.add_argument("--no-punctuation-restoration", action="store_true")
@@ -793,6 +1046,8 @@ def run_transcription(args: argparse.Namespace) -> OutputPaths:
         paragraph_seconds=args.paragraph_seconds,
         max_chars=args.max_paragraph_chars,
         punctuate=punctuate,
+        pause_seconds=getattr(args, "paragraph_pause_seconds", 1.6),
+        infer_punctuation=not args.no_punctuation_restoration,
     )
     write_raw_markdown(raw_path, args, entries, duration)
     write_reading_markdown(reading_path, args, sections, duration)

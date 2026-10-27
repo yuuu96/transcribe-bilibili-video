@@ -65,6 +65,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--compute-type", default="int8")
     parser.add_argument("--beam-size", type=int, default=5)
     parser.add_argument("--chunk-seconds", type=int, default=600)
+    parser.add_argument("--paragraph-seconds", type=int, default=35)
+    parser.add_argument("--max-paragraph-chars", type=int, default=260)
+    parser.add_argument("--paragraph-pause-seconds", type=float, default=1.6)
     parser.add_argument("--initial-prompt")
     parser.add_argument("--no-punctuation-restoration", action="store_true")
     parser.add_argument("--keep-checkpoints", action="store_true")
@@ -314,8 +317,9 @@ def build_transcription_args(
         initial_prompt=cli_args.initial_prompt,
         chunk_seconds=cli_args.chunk_seconds,
         section_seconds=300,
-        paragraph_seconds=50,
-        max_paragraph_chars=360,
+        paragraph_seconds=cli_args.paragraph_seconds,
+        max_paragraph_chars=cli_args.max_paragraph_chars,
+        paragraph_pause_seconds=cli_args.paragraph_pause_seconds,
         punctuation_model=settings.punctuation_model,
         punctuation_threads=2,
         no_punctuation_restoration=cli_args.no_punctuation_restoration,

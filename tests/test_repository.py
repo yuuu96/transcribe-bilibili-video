@@ -22,6 +22,7 @@ class RepositoryTests(unittest.TestCase):
             ROOT / "README.md",
             ROOT / "agents" / "openai.yaml",
             *sorted((ROOT / "scripts").glob("*.py")),
+            *sorted((ROOT / "references").glob("*.md")),
         ]
         mac_users_prefix = chr(47) + "Users" + chr(47)
         cookie_names = ("SESS" + "DATA", "bili" + "_jct")

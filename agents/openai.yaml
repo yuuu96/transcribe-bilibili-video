@@ -1,4 +1,4 @@
 interface:
   display_name: "B站视频纯文字转写"
-  short_description: "下载B站音频并本地识别，在单层目录输出文字稿与移动端HTML"
-  default_prompt: "使用 $transcribe-bilibili-video 下载这个B站视频的音频并进行本地语音识别，忽略平台字幕，输出带时间戳的纯文字稿，不添加总结或评价。"
+  short_description: "本地识别B站音频，输出原始稿与可读性整理稿"
+  default_prompt: "使用 $transcribe-bilibili-video 下载并本地识别这个B站视频，忽略平台字幕，同时输出原始逐字稿和带时间戳的 Light Clean Verbatim 可读稿，不添加总结或评价。"
