@@ -35,7 +35,34 @@ class BilibiliCliTests(unittest.TestCase):
             self.assertFalse(options["writeautomaticsub"])
             self.assertEqual(options["cookiefile"], str(cookies))
         self.assertTrue(metadata["skip_download"])
-        self.assertIn("bestaudio", download["format"])
+        self.assertTrue(callable(download["format"]))
+        self.assertEqual(download["http_chunk_size"], 512 * 1024)
+        self.assertEqual(download["retries"], 20)
+
+    def test_audio_selector_adds_range_header_required_by_bilibili_cdn(self) -> None:
+        selected = transcribe_bilibili.select_bilibili_audio(
+            {
+                "formats": [
+                    {
+                        "format_id": "30232",
+                        "url": "https://upos-hz-mirrorakam.akamaized.net/audio.m4s",
+                        "vcodec": "none",
+                        "acodec": "mp4a.40.2",
+                        "abr": 128,
+                    },
+                    {
+                        "format_id": "30280",
+                        "url": "https://upos-sz-mirrorcosov.bilivideo.com/audio.m4s",
+                        "vcodec": "none",
+                        "acodec": "mp4a.40.2",
+                        "abr": 192,
+                    },
+                ]
+            }
+        )
+
+        self.assertEqual(selected[0]["format_id"], "30280")
+        self.assertEqual(selected[0]["http_headers"]["Range"], "bytes=0-")
 
     def test_cli_values_override_local_config(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -165,7 +192,7 @@ class BilibiliCliTests(unittest.TestCase):
                 self.assertFalse(options["writesubtitles"])
                 self.assertFalse(options["writeautomaticsub"])
             self.assertNotIn("format", calls[0])
-            self.assertIn("bestaudio", calls[1]["format"])
+            self.assertTrue(callable(calls[1]["format"]))
             transcribe_args = transcribe.call_args.args[0]
             self.assertIsNone(transcribe_args.input_subtitle)
             self.assertEqual(transcribe_args.input_audio.suffix, ".m4a")

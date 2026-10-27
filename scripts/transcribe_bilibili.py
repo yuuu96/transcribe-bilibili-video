@@ -158,13 +158,43 @@ def build_ydl_options(
     else:
         options.update(
             {
-                "format": "bestaudio[ext=m4a]/bestaudio/best",
+                "format": select_bilibili_audio,
                 "outtmpl": output_template,
                 "continuedl": True,
+                "http_chunk_size": 512 * 1024,
                 "overwrites": False,
+                "retries": 20,
             }
         )
     return options
+
+
+def select_bilibili_audio(context: dict[str, Any]) -> list[dict[str, Any]]:
+    formats = context.get("formats") or []
+    audio_only = [
+        item
+        for item in formats
+        if item.get("vcodec") == "none"
+        and item.get("acodec") not in (None, "none")
+    ]
+    candidates = audio_only or [
+        item for item in formats if item.get("acodec") not in (None, "none")
+    ]
+    if not candidates:
+        return []
+
+    selected = max(
+        candidates,
+        key=lambda item: (
+            float(item.get("quality") or -1),
+            float(item.get("abr") or item.get("tbr") or -1),
+            int(item.get("filesize") or item.get("filesize_approx") or -1),
+        ),
+    ).copy()
+    headers = dict(selected.get("http_headers") or {})
+    headers.setdefault("Range", "bytes=0-")
+    selected["http_headers"] = headers
+    return [selected]
 
 
 def import_yt_dlp(settings: Settings):
